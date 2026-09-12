@@ -29,21 +29,24 @@ information available as of today's close.
 
 ## Current Status
 
-**Phase 2 — Data acquisition and validation.** Real daily OHLCV data for SPY
-has been downloaded via `yfinance`, cached to `data/raw/SPY.csv`, and passed
-a full structural/sanity validation pass with zero problems found (see
-"Data Acquisition" below for the actual numbers). No target has been
-constructed, no baseline computed, and no model trained yet — all
-performance-related sections remain placeholders until their corresponding
-phase.
+**Phase 3 — Leak-free target construction, chronological split, class
+balance.** The real SPY dataset now has a next-day-direction target
+(5,456 labeled rows), split chronologically into train/validation/test
+partitions, with class balance reported for the full dataset and each
+partition (see "Target Construction and Leakage Prevention" below for the
+actual numbers). No baseline has been computed and no model trained yet —
+all performance-related sections remain placeholders until their
+corresponding phase.
 
 ## Planned Approach
 
 1. ~~Fetch daily OHLCV data for the selected symbol via `yfinance` and cache
    it locally~~ — **done** (Phase 2, see "Data Acquisition" above).
-2. Construct a leak-free next-day-direction target using only
-   `Close[t]` and `Close[t+1]` (Phase 3).
-3. Report class balance and basic exploratory statistics (Phase 4).
+2. ~~Construct a leak-free next-day-direction target using only
+   `Close[t]` and `Close[t+1]`~~ — **done** (Phase 3, see "Target
+   Construction and Leakage Prevention" below).
+3. ~~Report class balance and basic exploratory statistics~~ — **done**
+   (Phase 3, folded into the same section since it needs the target/split).
 4. Establish two naive baselines — persistence and majority-class
    (Phase 5).
 5. Train a Logistic Regression model on raw OHLCV features (Phase 6).
@@ -111,6 +114,71 @@ runs as new trading days occur (since `END_DATE` is `None`, meaning "up to
 the most recent available session") — re-run the notebook for current
 figures rather than treating this snapshot as fixed.
 
+## Target Construction and Leakage Prevention
+
+**Exact definition.** For trading day `t`:
+
+```
+Target[t] = 1   if Close[t+1] >  Close[t]     (UP)
+Target[t] = 0   if Close[t+1] <= Close[t]     (DOWN_OR_FLAT)
+```
+
+- **Encoding:** `1 = UP`, `0 = DOWN_OR_FLAT`. This single convention
+  (`Target`, capitalized) is used consistently everywhere in the project —
+  no alternate spelling or casing is introduced elsewhere.
+- **Equal closes are DOWN_OR_FLAT, not discarded.** An unchanged price is
+  not a directional "up" move. Silently dropping tie rows would shrink the
+  dataset and bias the class balance based on an arbitrary tie-breaking
+  choice, so ties are kept and labeled 0.
+- **The final row is removed.** The last row in a chronologically-sorted
+  dataset has no following trading day, so `Close[t+1]` doesn't exist for
+  it — no label is fabricated; that row is dropped instead.
+- **How future information is kept out of features:** `Close[t+1]` is used
+  *only* inside `build_target` (`src/preprocessing.py`) to compute the
+  label for row `t`. It is never attached to the returned DataFrame as a
+  column, and it must never appear in any model's feature matrix built in
+  later phases — `assert_no_target_leakage()` exists specifically to check
+  a feature-column list against the target column and known future-derived
+  helper names once a real feature matrix is built (Phase 6+). A negative
+  `shift` (looking at `t+1`) is used only for target construction; feature
+  construction (Phase 6/7) will never use a negative shift.
+- **Manual verification:** the notebook's "Leak-Free Verification" section
+  prints `Date`, `Close[t]`, `Close[t+1]` (explicitly labeled "USED ONLY
+  FOR LABEL CONSTRUCTION — NOT A MODEL FEATURE"), and `Target` side by
+  side for real rows of the dataset, and independently recomputes `Target`
+  from that table to assert it matches — so an evaluator doesn't have to
+  take the implementation's word for it.
+
+**Chronological splitting.** `chronological_split()` divides the labeled
+dataset into TRAIN (oldest `TRAIN_RATIO`, 70%), VALIDATION (next
+`VALIDATION_RATIO`, 15%), and TEST (remaining ~15%) by row order alone —
+never `sklearn.train_test_split`, never shuffled, never randomly sampled.
+Random splitting is not used because it would let the model "see" data
+from time periods after (or interleaved with) what it's tested on,
+producing an artificially inflated and meaningless accuracy — the whole
+point of a time-series evaluation is to simulate only ever having the past
+available, so the split must respect real chronological order.
+
+**Class-balance analysis** (`compute_class_balance()` / real numbers from
+the current dataset, 5,456 labeled rows after the final row was dropped):
+
+| Partition | Rows | UP (1) | DOWN_OR_FLAT (0) | % UP |
+|---|---|---|---|---|
+| Full dataset | 5,456 | 2,980 | 2,476 | 54.62% |
+| Train | 3,819 | 2,082 | 1,737 | 54.52% |
+| Validation | 818 | 435 | 383 | 53.18% |
+| Test | 819 | 463 | 356 | 56.53% |
+
+The classes are mildly imbalanced (more UP days than DOWN_OR_FLAT days,
+consistent with SPY's long-term uptrend) but not severely so — this is
+reported honestly here, not glossed over, because it matters for choosing
+and interpreting classification metrics in later phases. These are real
+numbers from the notebook's last executed run, not estimates; re-running
+the notebook as new trading days accumulate will shift them slightly.
+
+No model has been trained yet and no accuracy claim is made here — this
+section is about the data pipeline, not predictive performance.
+
 ## Technology Stack
 
 - Python 3.12
@@ -168,6 +236,10 @@ stock-price-movement-predictor/
   numeric sanity, OHLC relationships, volume) every time it's loaded, and
   the notebook asserts on that validation report rather than assuming the
   data is clean.
+- The next-day target is built with a strict, tested definition
+  (`build_target`) that never fabricates a label for the unlabeled final
+  row and never lets `Close[t+1]` leak into the feature set — see "Target
+  Construction and Leakage Prevention" above.
 
 To set up locally:
 
@@ -183,8 +255,8 @@ jupyter notebook notebooks/stock_price_movement_predictor.ipynb
 | Phase | Scope |
 |---|---|
 | 2 | ~~Data acquisition and validation~~ — **done** |
-| 3 | Leak-free target construction |
-| 4 | Class balance and exploratory analysis |
+| 3 | ~~Leak-free target construction, chronological split, class balance~~ — **done** |
+| 4 | Additional exploratory analysis (if needed) |
 | 5 | Persistence and majority-class baselines |
 | 6 | Raw OHLCV model |
 | 7 | Technical indicators |
