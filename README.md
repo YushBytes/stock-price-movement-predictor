@@ -29,13 +29,13 @@ information available as of today's close.
 
 ## Current Status
 
-**Phase 4 — Naive baselines.** Persistence and majority-class baselines
-have been implemented and evaluated on the chronological test partition
-(see "Naive Baselines" below for the actual metrics). No machine-learning
-model has been trained yet — Logistic Regression, technical indicators,
-and the four-way comparison remain placeholders until their corresponding
-phase. These baselines are the reference point any real model must beat;
-nothing here is a claim that either baseline is "good."
+**Phase 5 — Raw price/volume model.** The first real machine-learning
+model (Logistic Regression on causally-lagged raw OHLCV features) has
+been trained and evaluated on the chronological test partition (see "Raw
+Price/Volume Model" below for the actual metrics and an honest comparison
+against the two naive baselines). Technical indicators, the
+engineered-feature model, and the four-way comparison remain placeholders
+until their corresponding phase.
 
 ## Planned Approach
 
@@ -48,7 +48,8 @@ nothing here is a claim that either baseline is "good."
    (Phase 3, folded into the same section since it needs the target/split).
 4. ~~Establish two naive baselines — persistence and majority-class~~ —
    **done** (Phase 4, see "Naive Baselines" below).
-5. Train a Logistic Regression model on raw OHLCV features (Phase 5).
+5. ~~Train a Logistic Regression model on raw OHLCV features~~ — **done**
+   (Phase 5, see "Raw Price/Volume Model" below).
 6. Engineer technical indicators (moving averages, RSI, MACD, rolling
    volatility, returns) computed causally (Phase 6).
 7. Train a second model on the engineered features (Phase 7).
@@ -245,6 +246,114 @@ Phase 5+'s real models must beat, and the fact that persistence lands
 almost exactly at a coin flip (50.18%) is an expected, honest result for
 a liquid index's daily direction, not a bug.
 
+## Raw Price/Volume Model
+
+The first real machine-learning model in this project — **raw price/volume
+only, no technical indicators yet** (Option A requires training on raw
+price/volume before retraining on engineered indicators; indicators are a
+later phase).
+
+### Raw Feature Philosophy and Lag Structure
+
+At prediction time `t`, the model may only use information already
+observed at or before `t`. `build_raw_features()` (`src/features.py`)
+builds causally-lagged columns for each of `Open, High, Low, Close,
+Volume` at lags **1, 2, 3, and 5** trading days (e.g. `Close_lag1[t] =
+Close[t-1]`, `Volume_lag5[t] = Volume[t-5]`) — 20 features in total, no
+same-day (lag 0) column. Every one of these values was observed strictly
+before `Target[t]` is decided, so using it as a feature cannot leak the
+outcome being predicted.
+
+### Why Lagging Prevents Look-Ahead
+
+Only `pandas.Series.shift(k)` with a **positive** `k` is used — never
+`shift(-1)`/`shift(-2)`. A negative shift (looking at `t+1`) is reserved
+exclusively for `build_target()`; `build_raw_features()` rejects a
+non-positive lag with a `ValueError` rather than silently accepting one,
+so this isn't just a convention, it's enforced.
+
+### Handling Lag-Induced Missing Rows
+
+The first `max(lags) = 5` rows of the dataset can't have every lag
+populated (fewer than 5 days of preceding history exist) — they are
+**dropped**, never forward-filled, backward-filled, or invented. Applying
+this to the full chronological dataset before partitioning means only the
+very start of the **training** partition loses rows: **5 rows lost**,
+train shrinks from 3,819 to 3,814 usable feature rows. The validation
+(818 rows) and test (819 rows) partitions are **fully intact**, because
+features for their first rows can correctly look back into whatever
+partition immediately precedes them (the same reasoning the persistence
+baseline already relies on) — the existing `train_df`/`validation_df`/
+`test_df` partitions from Phase 3 are reused by `Date` membership rather
+than re-splitting from scratch, so the test window stays identical to the
+one the baselines were evaluated on: **2023-06-06 to 2026-09-10**.
+
+### Logistic Regression and Training-Only Scaling
+
+`sklearn.linear_model.LogisticRegression` (`src/models.py`,
+`random_state` fixed to `config.RANDOM_SEED`, `max_iter=1000`, no
+hyperparameter search — repeatedly tuning against the test set is exactly
+the kind of leakage this project avoids) fits a linear decision boundary
+in scaled feature space and outputs a probability of UP; thresholding at
+0.5 gives the binary prediction.
+
+`sklearn.preprocessing.StandardScaler` is fit **only** on `X_train`:
+
+```python
+scaler.fit(X_train)
+X_train_scaled = scaler.transform(X_train)
+X_val_scaled = scaler.transform(X_val)
+X_test_scaled = scaler.transform(X_test)
+```
+
+`scaler.fit_transform(X_test)` and `scaler.fit_transform(X_val)` are never
+called. Concrete evidence this is real, not just asserted: after scaling,
+`X_train`'s per-feature mean/std land at ~0/~1 (by definition of fitting
+on it) — but `X_test`, scaled with `X_train`'s parameters, does **not**
+land near 0/1 (its scaled means come out around **6.6**, stds around
+**1.58**, for the real dataset). That gap is exactly what you'd expect
+when a scaler's parameters come from a *different, earlier* period than
+the data being transformed — direct proof the scaler never saw test data
+during fitting.
+
+### Role of Validation vs. Test
+
+The validation partition exists for development/diagnostics; the test
+partition is the final, untouched evaluation window. This phase performs
+no hyperparameter tuning, so validation isn't used to pick anything here
+— but the split discipline (fit only on train, never peek at test) is
+already in place for when tuning is introduced.
+
+### Actual Test Metrics and Comparison with Baselines
+
+Computed by `compute_classification_metrics` on the same 819-row test
+target used by both baselines, independently cross-checked by manually
+recomputing accuracy in the notebook:
+
+| Model | Accuracy | Precision | Recall | F1 |
+|---|---|---|---|---|
+| Persistence | 0.5018 | 0.5594 | 0.5594 | 0.5594 |
+| Majority Class | 0.5653 | 0.5653 | 1.0000 | 0.7223 |
+| Raw Logistic Regression | 0.5128 | 0.5586 | 0.6587 | 0.6046 |
+
+Saved to `results/raw_model_comparison.csv` (generated, gitignored;
+`results/baseline_comparison.csv` from Phase 4 is left untouched).
+
+**Honest discussion of the result:** the raw model beats Persistence
+(51.28% vs. 50.18% accuracy) but does **not** beat Majority Class (56.53%)
+on accuracy. This is not being reported as a success. With a mildly
+imbalanced test set (56.53% UP), a model that leans toward predicting UP
+more often (its recall of 0.6587 vs. Persistence's 0.5594 shows it does)
+can still trail a baseline that predicts UP unconditionally on raw
+accuracy, precisely because that baseline's simplicity is well-suited to
+an imbalanced test period. Twenty lagged raw price/volume numbers appear
+to carry only weak, if any, genuine directional signal beyond what the
+class imbalance itself already provides — consistent with market
+efficiency and exactly the kind of honest, unglamorous result this
+project is designed to surface rather than hide. Whether engineered
+technical indicators (Phase 6) do any better is an open, real question,
+not a foregone conclusion.
+
 ## Technology Stack
 
 - Python 3.12
@@ -306,6 +415,10 @@ stock-price-movement-predictor/
   (`build_target`) that never fabricates a label for the unlabeled final
   row and never lets `Close[t+1]` leak into the feature set — see "Target
   Construction and Leakage Prevention" above.
+- Raw feature lags use only positive `shift(k)` values (`build_raw_features`
+  rejects a non-positive lag outright); `LogisticRegression` is trained
+  with a fixed `random_state` and no hyperparameter search, so re-running
+  the notebook reproduces the same model and metrics.
 
 To set up locally:
 
@@ -323,7 +436,7 @@ jupyter notebook notebooks/stock_price_movement_predictor.ipynb
 | 2 | ~~Data acquisition and validation~~ — **done** |
 | 3 | ~~Leak-free target construction, chronological split, class balance~~ — **done** |
 | 4 | ~~Persistence and majority-class baselines~~ — **done** |
-| 5 | Raw OHLCV model |
+| 5 | ~~Raw OHLCV model~~ — **done** |
 | 6 | Technical indicators |
 | 7 | Engineered-feature model |
 | 8 | Time-series evaluation |
