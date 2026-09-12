@@ -29,13 +29,14 @@ information available as of today's close.
 
 ## Current Status
 
-**Phase 5 — Raw price/volume model.** The first real machine-learning
-model (Logistic Regression on causally-lagged raw OHLCV features) has
-been trained and evaluated on the chronological test partition (see "Raw
-Price/Volume Model" below for the actual metrics and an honest comparison
-against the two naive baselines). Technical indicators, the
-engineered-feature model, and the four-way comparison remain placeholders
-until their corresponding phase.
+**Phase 6 — Technical indicator feature engineering.** Five causal
+technical indicators (SMA, RSI, MACD, daily return, rolling volatility)
+have been implemented, validated, and visualized on the real dataset (see
+"Technical Indicators" below). **No engineered-feature model has been
+trained yet** — that, along with the four-way comparison (Persistence vs.
+Majority vs. Raw vs. Engineered), is the next phase. This phase makes no
+claim about whether indicators improve on the raw model; that question is
+answered only once the engineered model is actually trained and evaluated.
 
 ## Planned Approach
 
@@ -50,8 +51,9 @@ until their corresponding phase.
    **done** (Phase 4, see "Naive Baselines" below).
 5. ~~Train a Logistic Regression model on raw OHLCV features~~ — **done**
    (Phase 5, see "Raw Price/Volume Model" below).
-6. Engineer technical indicators (moving averages, RSI, MACD, rolling
-   volatility, returns) computed causally (Phase 6).
+6. ~~Engineer technical indicators (moving averages, RSI, MACD, rolling
+   volatility, returns) computed causally~~ — **done** (Phase 6, see
+   "Technical Indicators" below).
 7. Train a second model on the engineered features (Phase 7).
 8. Evaluate all four approaches on an untouched, chronologically final
    test window and produce a four-way comparison (Phases 8–9).
@@ -354,6 +356,66 @@ project is designed to surface rather than hide. Whether engineered
 technical indicators (Phase 6) do any better is an open, real question,
 not a foregone conclusion.
 
+## Technical Indicators
+
+Feature engineering only in this section — **no engineered-feature model
+is trained here**; that is the next phase.
+
+### Indicators Selected and Exact Windows
+
+| Indicator | Column(s) | Window | Purpose |
+|---|---|---|---|
+| Simple Moving Average | `SMA_10`, `SMA_20` | 10, 20 days | Smoothed recent-trend reference; price relative to it is a classic momentum/mean-reversion signal. |
+| Relative Strength Index | `RSI_14` | 14 days | Ratio of average gains to losses, scaled 0–100; extreme readings often precede a reversal or continuation. |
+| MACD | `MACD`, `MACD_SIGNAL`, `MACD_HIST` | 12/26/9 days | Fast-EMA-minus-slow-EMA trend/momentum signal; crossovers are widely used as trend-change signals. |
+| Daily Return | `RETURN_1D` | 1 day | Simplest possible momentum/reversal signal (`Close.pct_change(1)`). |
+| Rolling Volatility | `VOLATILITY_20` | 20 days | 20-day rolling standard deviation of `RETURN_1D`; volatility regime affects how reliable directional signals are. |
+
+Implemented via `build_technical_indicators()` (`src/features.py`), using
+the `ta` library (never `pandas-ta`, which is unmaintained) for SMA/RSI/
+MACD and plain pandas (`pct_change`, `rolling().std()`) for return/
+volatility.
+
+### Causal Calculation
+
+Every indicator above is a **trailing** (backward-looking) transformation
+of historical `Close` prices: `ta`'s SMA/RSI/MACD implementations were
+inspected directly (their source contains no `center=True` and no
+negative `shift`) before being adopted, and the return/volatility
+formulas use only `pct_change(1)`/`rolling(window)`, which by construction
+never look ahead. `Target[t] = 1 if Close[t+1] > Close[t]`, so an
+indicator computed using information available *through* day `t` (e.g.
+`RSI_14[t]`) is valid for predicting `Target[t]` without needing to see
+day `t+1` — this timing relationship is spelled out explicitly in the
+notebook's "Technical Indicators" section.
+
+A **perturbation test** makes this concrete rather than just asserted:
+the notebook changes a single real observation (the very last day's
+`Close`) and rebuilds every indicator, then asserts that every row more
+than 40 rows before that change is byte-for-byte identical to the
+un-perturbed version. It passes on the real dataset.
+
+### Warm-Up Handling
+
+Rows within any indicator's warm-up period are **dropped**, never
+forward-filled, backward-filled, or invented. On the real dataset, this
+removes **33 rows** (2005-01-10 to 2005-02-17) — `MACD`'s 26+9-day
+requirement is the longest warm-up among the five indicators, and
+therefore determines the cutoff for all of them together.
+
+### Raw vs. Engineered Features
+
+The next phase's engineered feature set will be `build_raw_features()`'s
+20 lagged raw OHLCV columns (Phase 5) **plus** these 8 technical-indicator
+columns — indicators are added *on top of* raw features, not used as a
+replacement, so the eventual comparison actually tests whether indicators
+add signal beyond raw price/volume history rather than testing two
+unrelated feature sets against each other.
+
+No claim is made here about whether these indicators improve prediction
+accuracy — that is only answered once the engineered model is trained
+and evaluated against the raw model and both baselines (next phase).
+
 ## Technology Stack
 
 - Python 3.12
@@ -437,7 +499,7 @@ jupyter notebook notebooks/stock_price_movement_predictor.ipynb
 | 3 | ~~Leak-free target construction, chronological split, class balance~~ — **done** |
 | 4 | ~~Persistence and majority-class baselines~~ — **done** |
 | 5 | ~~Raw OHLCV model~~ — **done** |
-| 6 | Technical indicators |
+| 6 | ~~Technical indicators~~ — **done** |
 | 7 | Engineered-feature model |
 | 8 | Time-series evaluation |
 | 9 | Four-way comparison |
