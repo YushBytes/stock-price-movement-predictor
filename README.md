@@ -5,7 +5,7 @@
 A reproducible machine-learning project that predicts whether a liquid
 equity/index will close **higher or lower tomorrow than today** (a binary
 Up/Down classification problem), built for the GitHub Community SRM (GCSRM)
-Recruitment 2026 Technical Track — AI & Machine Learning, Option A.
+Recruitment 2026 Technical Track — AI & Machine Learning.
 
 This is an educational project demonstrating correct time-series ML
 methodology (no leakage, no shuffling, honest baselines) — it is **not** a
