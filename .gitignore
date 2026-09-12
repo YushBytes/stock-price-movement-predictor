@@ -37,14 +37,23 @@ data/processed/*
 !data/processed/.gitkeep
 
 # --- Generated artifacts ---------------------------------------------------
-# Figures are regenerable from the notebook (and already embedded as
-# outputs in the committed .ipynb), so they stay out of git. Results CSVs
-# are the project's final deliverable evidence (Option A requirement) and
-# are committed so an evaluator can see them without re-running anything.
+# Results CSVs are the project's final deliverable evidence (Option A
+# requirement) and are committed so an evaluator can see them without
+# re-running anything.
+# Figures are committed so the Streamlit dashboard can display them both
+# locally and on Streamlit Community Cloud without requiring a notebook run.
+# Future generated figures not listed below remain gitignored.
 models/*
 !models/.gitkeep
 figures/*
 !figures/.gitkeep
+!figures/class_balance.png
+!figures/close_with_sma.png
+!figures/engineered_confusion_matrix.png
+!figures/macd_over_time.png
+!figures/predicted_vs_actual.png
+!figures/rsi_over_time.png
+!figures/spy_close_price.png
 
 # --- Testing / caches -------------------------------------------------------
 .pytest_cache/

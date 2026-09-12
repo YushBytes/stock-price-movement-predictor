@@ -4,8 +4,8 @@
 
 A reproducible machine-learning project that predicts whether a liquid
 equity/index will close **higher or lower tomorrow than today** (a binary
-Up/Down classification problem), built for the GitHub Community SRM (GCSRM)
-Recruitment 2026 Technical Track — AI & Machine Learning.
+Up/Down classification problem), built to demonstrate rigorous, leak-free
+time-series ML methodology on real market data.
 
 This is an educational project demonstrating correct time-series ML
 methodology (no leakage, no shuffling, honest baselines) — it is **not** a
@@ -27,7 +27,7 @@ information available as of today's close.
 - Demonstrate, in a way a reviewer can verify line by line, that no future
   information ever reaches a feature or a fitted preprocessor.
 
-## Requirements Checklist
+## Project Requirements Checklist
 
 Verified directly against the repository (not assumed from prior notes)
 during the Phase 8 final audit.
@@ -57,7 +57,7 @@ during the Phase 8 final audit.
 ## Current Status
 
 **Phase 7 — Engineered feature model and final four-way comparison
-(project complete through Option A's required scope).** The engineered
+(project complete through its full planned scope).** The engineered
 Logistic Regression (28 features: 20 raw lagged OHLCV + 8 technical
 indicators) has been trained and evaluated on the identical chronological
 test partition used by every other model. The final four-way comparison
@@ -283,9 +283,9 @@ a liquid index's daily direction, not a bug.
 ## Raw Price/Volume Model
 
 The first real machine-learning model in this project — **raw price/volume
-only, no technical indicators yet** (Option A requires training on raw
-price/volume before retraining on engineered indicators; indicators are a
-later phase).
+only, no technical indicators yet**. Training on raw price/volume before
+retraining on engineered indicators establishes a clean, isolated
+reference point for how much (if anything) indicators add later.
 
 ### Raw Feature Philosophy and Lag Structure
 
@@ -628,15 +628,42 @@ run downloads real data from Yahoo Finance (`data/raw/SPY.csv`, not
 committed); every run after that reuses the cached file unless
 `config.py`'s date range changes.
 
-## Frontend
+## Streamlit Demo
 
-An optional React/Vite/Tailwind presentation dashboard is included under
-[`frontend/`](frontend/). It presents this experiment's verified results
-(dataset summary, baselines, raw/engineered models, indicators, leakage
-prevention, and the final four-way comparison) for quick review — it does
-not modify, retrain, or re-run any part of the ML pipeline above, and
-performs no live inference. See [`frontend/README.md`](frontend/README.md)
-for setup instructions.
+An interactive research dashboard is available as a Streamlit application.
+It presents the verified experiment results in a polished, dark-themed
+research-dashboard UI — it never modifies, retrains, or re-runs any part
+of the ML pipeline, and performs no live inference.
+
+**To run locally:**
+
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+Then open `http://localhost:8501` in your browser.
+
+**What it shows:**
+
+| Section | Content |
+|---|---|
+| Overview | Key statistics, experiment summary, final results table |
+| Dataset | Asset details, date range, class balance by partition |
+| Methodology | Target formula, chronological split timeline, leakage audit |
+| Technical Indicators | All 8 indicators with formulas, descriptions, and figures |
+| Model Comparison | Interactive metric selector, bar chart, full comparison table |
+| Class Balance | UP/DOWN counts, proportion chart, imbalance explanation |
+| Predictions | `figures/predicted_vs_actual.png` + confusion matrix |
+| Findings & Limitations | Main conclusion, discussion, limitations, reproducibility |
+
+All displayed metrics are loaded directly from `results/final_comparison.csv`
+and the other committed results CSVs — nothing is hard-coded in the UI.
+Figures are loaded from `figures/` (committed to git as of Phase 8).
+
+**Disclaimer:** This is an educational and research project. It is not
+financial advice and makes no claim of trading profitability.
+
 
 ## Future Implementation Phases
 
@@ -651,6 +678,7 @@ for setup instructions.
 comparison, prediction visualization~~ — **done** |
 | 8 | Final project audit / polish (see "Recommendation for Phase 8" in the Phase 7 report) |
 
-All Orequired deliverables are implemented and evaluated . Results, metrics, and conclusions in this README were added
+All planned deliverables are implemented and evaluated as of Phase 7.
+Results, metrics, and conclusions in this README were added
 **only** after they were produced and verified in the notebook — nothing
 here is fabricated or anticipated.
