@@ -29,14 +29,13 @@ information available as of today's close.
 
 ## Current Status
 
-**Phase 3 — Leak-free target construction, chronological split, class
-balance.** The real SPY dataset now has a next-day-direction target
-(5,456 labeled rows), split chronologically into train/validation/test
-partitions, with class balance reported for the full dataset and each
-partition (see "Target Construction and Leakage Prevention" below for the
-actual numbers). No baseline has been computed and no model trained yet —
-all performance-related sections remain placeholders until their
-corresponding phase.
+**Phase 4 — Naive baselines.** Persistence and majority-class baselines
+have been implemented and evaluated on the chronological test partition
+(see "Naive Baselines" below for the actual metrics). No machine-learning
+model has been trained yet — Logistic Regression, technical indicators,
+and the four-way comparison remain placeholders until their corresponding
+phase. These baselines are the reference point any real model must beat;
+nothing here is a claim that either baseline is "good."
 
 ## Planned Approach
 
@@ -47,16 +46,16 @@ corresponding phase.
    Construction and Leakage Prevention" below).
 3. ~~Report class balance and basic exploratory statistics~~ — **done**
    (Phase 3, folded into the same section since it needs the target/split).
-4. Establish two naive baselines — persistence and majority-class
-   (Phase 5).
-5. Train a Logistic Regression model on raw OHLCV features (Phase 6).
+4. ~~Establish two naive baselines — persistence and majority-class~~ —
+   **done** (Phase 4, see "Naive Baselines" below).
+5. Train a Logistic Regression model on raw OHLCV features (Phase 5).
 6. Engineer technical indicators (moving averages, RSI, MACD, rolling
-   volatility, returns) computed causally (Phase 7).
-7. Train a second model on the engineered features (Phase 8).
+   volatility, returns) computed causally (Phase 6).
+7. Train a second model on the engineered features (Phase 7).
 8. Evaluate all four approaches on an untouched, chronologically final
-   test window and produce a four-way comparison (Phases 9–10).
+   test window and produce a four-way comparison (Phases 8–9).
 9. Visualize predicted vs. actual direction over the test window
-   (Phase 11).
+   (Phase 10).
 
 Full architecture, dataset rationale, and leakage-prevention plan were
 established in the Phase 0 design document and are reflected in the module
@@ -139,9 +138,9 @@ Target[t] = 0   if Close[t+1] <= Close[t]     (DOWN_OR_FLAT)
   column, and it must never appear in any model's feature matrix built in
   later phases — `assert_no_target_leakage()` exists specifically to check
   a feature-column list against the target column and known future-derived
-  helper names once a real feature matrix is built (Phase 6+). A negative
+  helper names once a real feature matrix is built (Phase 5+). A negative
   `shift` (looking at `t+1`) is used only for target construction; feature
-  construction (Phase 6/7) will never use a negative shift.
+  construction (Phase 5/6) will never use a negative shift.
 - **Manual verification:** the notebook's "Leak-Free Verification" section
   prints `Date`, `Close[t]`, `Close[t+1]` (explicitly labeled "USED ONLY
   FOR LABEL CONSTRUCTION — NOT A MODEL FEATURE"), and `Target` side by
@@ -178,6 +177,73 @@ the notebook as new trading days accumulate will shift them slightly.
 
 No model has been trained yet and no accuracy claim is made here — this
 section is about the data pipeline, not predictive performance.
+
+## Naive Baselines
+
+Both baselines are evaluated on the same chronological test partition
+(`test_df`, 819 rows, 2023-06-06 to 2026-09-10) established in Phase 3,
+against the same `test_df["Target"]` values, using the same positive-class
+convention (UP = 1). Neither baseline fits anything — they are rule-based
+reference points a real model must beat.
+
+### Persistence Baseline
+
+- **Definition:** predicts that tomorrow's direction matches the most
+  recently observed one-day price direction: `prediction[t] =
+  direction[t-1]`, where `direction[k] = 1 if Close[k] > Close[k-1] else 0`.
+- **Why it's a useful baseline:** it captures naive momentum/trend-following
+  — "whatever just happened will keep happening" — without any model
+  fitting, so it's the simplest possible non-constant predictor a real
+  model should outperform.
+- **How historical direction is used:** `persistence_baseline()`
+  (`src/baselines.py`) is given the *entire* chronological history
+  (train+validation+test) for context, so the first prediction in the test
+  window can correctly use the last observed direction from the
+  *validation* period rather than being dropped for lack of in-partition
+  history. Only `test_df`'s dates and row count determine what gets
+  predicted and how many predictions come back.
+- **How leakage is avoided:** the prediction for row `t` only ever reads
+  `Close[t-1]` and `Close[t-2]` — never `Close[t]`, never `Close[t+1]`, and
+  never the row's own `Target` value (using `Target[t]` to predict
+  `Target[t]` would be circular, since `Target[t]` is itself defined using
+  `Close[t+1]`, the very thing being predicted).
+
+### Majority-Class Baseline
+
+- **Definition:** always predicts the single class most frequent in the
+  **training partition**, for every evaluation row.
+- **Training-only class determination:** `majority_class_baseline()` takes
+  only `train_df["Target"]` as input — there is no parameter through which
+  validation or test data could influence which class is chosen. On the
+  real data, train is 54.52% UP / 45.48% DOWN_OR_FLAT, so the majority
+  class is **UP (1)**. An exact 50/50 tie (not the case here) is broken
+  deterministically toward UP (1) — a fixed, documented rule, not a
+  data-dependent one.
+- **Why it's necessary with imbalanced classes:** accuracy alone can be
+  misleading when classes aren't 50/50 — a model could look "accurate"
+  just by leaning toward the majority class. This baseline makes that
+  effect explicit and quantifiable, so later models are judged against
+  what "doing nothing clever" already achieves, not against a naive 50%.
+
+### Actual Baseline Results
+
+Computed by `src/evaluation.py::compute_classification_metrics` on the
+real test partition (819 predictions each), independently cross-checked
+by manually recomputing accuracy in the notebook:
+
+| Model | Accuracy | Precision | Recall | F1 |
+|---|---|---|---|---|
+| Persistence | 0.5018 | 0.5594 | 0.5594 | 0.5594 |
+| Majority Class | 0.5653 | 0.5653 | 1.0000 | 0.7223 |
+
+Saved to `results/baseline_comparison.csv` (generated, gitignored). The
+majority baseline's recall is trivially 1.0 because it always predicts UP
+— it "catches" every actual UP day by never predicting anything else, at
+the cost of also predicting UP on every DOWN_OR_FLAT day. Neither number
+here is being claimed as "good" — they exist purely as the reference point
+Phase 5+'s real models must beat, and the fact that persistence lands
+almost exactly at a coin flip (50.18%) is an expected, honest result for
+a liquid index's daily direction, not a bug.
 
 ## Technology Stack
 
@@ -256,15 +322,14 @@ jupyter notebook notebooks/stock_price_movement_predictor.ipynb
 |---|---|
 | 2 | ~~Data acquisition and validation~~ — **done** |
 | 3 | ~~Leak-free target construction, chronological split, class balance~~ — **done** |
-| 4 | Additional exploratory analysis (if needed) |
-| 5 | Persistence and majority-class baselines |
-| 6 | Raw OHLCV model |
-| 7 | Technical indicators |
-| 8 | Engineered-feature model |
-| 9 | Time-series evaluation |
-| 10 | Four-way comparison |
-| 11 | Prediction visualization |
-| 12–15 | Notebook polish, documentation, reproducibility audit, final review |
+| 4 | ~~Persistence and majority-class baselines~~ — **done** |
+| 5 | Raw OHLCV model |
+| 6 | Technical indicators |
+| 7 | Engineered-feature model |
+| 8 | Time-series evaluation |
+| 9 | Four-way comparison |
+| 10 | Prediction visualization |
+| 11–14 | Notebook polish, documentation, reproducibility audit, final review |
 
 Results, metrics, and conclusions will be added to this README **only**
 after they have been produced and verified in the notebook — nothing here

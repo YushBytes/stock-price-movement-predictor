@@ -155,7 +155,7 @@ def chronological_split(df: pd.DataFrame, train_ratio: float, validation_ratio: 
 def assert_no_target_leakage(feature_columns, target_column: str = TARGET_COLUMN) -> None:
     """Assert that a feature-column list excludes the target and known future-derived helpers.
 
-    Not exercised by a real feature matrix until Phase 6+, but established
+    Not exercised by a real feature matrix until Phase 5+, but established
     now so the safeguard exists from the moment target construction lands.
     """
     feature_columns = list(feature_columns)
