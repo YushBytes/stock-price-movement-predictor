@@ -36,6 +36,7 @@ import ta.trend
 
 RAW_PRICE_VOLUME_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
 RAW_FEATURE_LAGS = [1, 2, 3, 5]
+RAW_FEATURE_COLUMNS = [f"{column}_lag{lag}" for column in RAW_PRICE_VOLUME_COLUMNS for lag in RAW_FEATURE_LAGS]
 
 
 def build_raw_features(df: pd.DataFrame, lags: list[int] | None = None) -> pd.DataFrame:
@@ -114,6 +115,9 @@ TECHNICAL_INDICATOR_WINDOWS = {
     "VOLATILITY_20": 20,
     "RETURN_1D": 1,
 }
+TECHNICAL_INDICATOR_COLUMNS = [
+    "SMA_10", "SMA_20", "RSI_14", "MACD", "MACD_SIGNAL", "MACD_HIST", "RETURN_1D", "VOLATILITY_20",
+]
 
 
 def build_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
@@ -205,5 +209,64 @@ def build_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     if result[indicator_columns].isna().any().any():
         raise AssertionError("Unexpected NaN values remain in technical indicators after warm-up trimming.")
+
+    return result
+
+
+ENGINEERED_FEATURE_COLUMNS = RAW_FEATURE_COLUMNS + TECHNICAL_INDICATOR_COLUMNS
+
+
+def build_engineered_features(df: pd.DataFrame, lags: list[int] | None = None) -> pd.DataFrame:
+    """Build the full engineered feature set: raw lagged OHLCV features
+    (``build_raw_features``) plus technical indicators
+    (``build_technical_indicators``), aligned by ``Date``.
+
+    Reuses both existing builders directly rather than duplicating any
+    formula. The two have different warm-up requirements (5 rows for the
+    default raw lags, 33 rows for the technical indicators on the real
+    SPY dataset -- driven by MACD's 26+9-day requirement), so the
+    combined dataset begins wherever the **later** of the two cutoffs
+    falls: inner-joining on ``Date`` naturally produces exactly this,
+    dropping any row either builder didn't yet consider ready. No
+    forward/backward filling or invented values are used anywhere in
+    this alignment.
+
+    Returns a new DataFrame with columns, in this fixed order:
+    ``Date``, then the raw feature columns (``RAW_FEATURE_COLUMNS``),
+    then the technical indicator columns (``TECHNICAL_INDICATOR_COLUMNS``).
+    With the default lags, this is 1 + 20 + 8 = 29 columns (28 features
+    plus ``Date``). Neither underlying builder's input ``df`` is mutated,
+    and ``Target`` is never included -- neither builder reads or writes it.
+
+    Raises
+    ------
+    KeyError, ValueError
+        Propagated directly from ``build_raw_features``/
+        ``build_technical_indicators`` (missing columns, empty input, or
+        non-chronological dates), plus a ``KeyError`` if either builder's
+        output unexpectedly lacks a ``Date`` column to align on.
+    """
+    raw_features_df = build_raw_features(df, lags=lags)
+    indicator_df = build_technical_indicators(df)
+
+    if "Date" not in raw_features_df.columns or "Date" not in indicator_df.columns:
+        raise KeyError("Both raw features and technical indicators require a 'Date' column to align on.")
+
+    raw_feature_columns = [c for c in raw_features_df.columns if c != "Date"]
+    indicator_columns = [c for c in indicator_df.columns if c != "Date"]
+
+    merged = raw_features_df.merge(indicator_df, on="Date", how="inner")
+    merged = merged.sort_values("Date").reset_index(drop=True)
+
+    ordered_columns = ["Date"] + raw_feature_columns + indicator_columns
+    result = merged[ordered_columns]
+
+    feature_columns = raw_feature_columns + indicator_columns
+    if result[feature_columns].isna().any().any():
+        raise AssertionError("Unexpected NaN values remain in the engineered feature set after alignment.")
+    if result.duplicated(subset="Date").any():
+        raise AssertionError("Duplicate dates found after aligning raw features with technical indicators.")
+    if not result["Date"].is_monotonic_increasing:
+        raise AssertionError("Engineered feature dates are not chronologically ordered after alignment.")
 
     return result

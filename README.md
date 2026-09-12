@@ -29,14 +29,16 @@ information available as of today's close.
 
 ## Current Status
 
-**Phase 6 — Technical indicator feature engineering.** Five causal
-technical indicators (SMA, RSI, MACD, daily return, rolling volatility)
-have been implemented, validated, and visualized on the real dataset (see
-"Technical Indicators" below). **No engineered-feature model has been
-trained yet** — that, along with the four-way comparison (Persistence vs.
-Majority vs. Raw vs. Engineered), is the next phase. This phase makes no
-claim about whether indicators improve on the raw model; that question is
-answered only once the engineered model is actually trained and evaluated.
+**Phase 7 — Engineered feature model and final four-way comparison
+(project complete through Option A's required scope).** The engineered
+Logistic Regression (28 features: 20 raw lagged OHLCV + 8 technical
+indicators) has been trained and evaluated on the identical chronological
+test partition used by every other model. The final four-way comparison
+(Persistence, Majority Class, Raw Logistic Regression, Engineered
+Logistic Regression) is complete — see "Final Results" and "Findings"
+below. **The honest result: the engineered model did not improve on the
+raw model, and no machine-learning model in this project beat the
+Majority Class baseline.** This is reported as-is, not adjusted.
 
 ## Planned Approach
 
@@ -54,11 +56,13 @@ answered only once the engineered model is actually trained and evaluated.
 6. ~~Engineer technical indicators (moving averages, RSI, MACD, rolling
    volatility, returns) computed causally~~ — **done** (Phase 6, see
    "Technical Indicators" below).
-7. Train a second model on the engineered features (Phase 7).
-8. Evaluate all four approaches on an untouched, chronologically final
-   test window and produce a four-way comparison (Phases 8–9).
-9. Visualize predicted vs. actual direction over the test window
-   (Phase 10).
+7. ~~Train a second model on the engineered features~~ — **done** (Phase 7,
+   see "Engineered Feature Model" below).
+8. ~~Evaluate all four approaches on an untouched, chronologically final
+   test window and produce a four-way comparison~~ — **done** (Phase 7,
+   see "Final Results" below).
+9. ~~Visualize predicted vs. actual direction over the test window~~ —
+   **done** (Phase 7, `figures/predicted_vs_actual.png`).
 
 Full architecture, dataset rationale, and leakage-prevention plan were
 established in the Phase 0 design document and are reflected in the module
@@ -416,6 +420,98 @@ No claim is made here about whether these indicators improve prediction
 accuracy — that is only answered once the engineered model is trained
 and evaluated against the raw model and both baselines (next phase).
 
+## Engineered Feature Model
+
+**28 total features**: the 20 raw lagged OHLCV columns from Phase 5
+(`build_raw_features`) plus the 8 technical indicators from Phase 6
+(`build_technical_indicators`), combined by `build_engineered_features()`
+(`src/features.py`) — which reuses both existing builders directly rather
+than duplicating any formula, and aligns them by `Date` (an inner join),
+so the combined dataset naturally begins wherever the **later** of the
+two warm-up cutoffs falls (33 rows, driven by the technical indicators —
+identical to Phase 6's cutoff, since 33 > 5).
+
+- **Model:** `sklearn.linear_model.LogisticRegression`, the exact same
+  deterministic configuration as the raw model (`random_state =
+  config.RANDOM_SEED`, `max_iter=1000`, no hyperparameter search).
+- **Scaler:** `StandardScaler` fit **only** on `X_train_eng`
+  (3,786 rows × 28 features — train lost 33 rows to indicator warm-up);
+  `X_val_eng`/`X_test_eng` transformed with those fitted parameters only.
+  Concrete proof, not just assertion: scaled `X_test_eng` means land
+  around **6.63** (not ~0), the same signature seen in the raw model,
+  confirming the scaler never saw test data.
+- **Chronological evaluation:** the existing `train_df`/`validation_df`/
+  `test_df` partitions from Phase 3 are reused by `Date` membership —
+  never re-split — so the **test period is unchanged**:
+  **2023-06-06 to 2026-09-10, 819 observations**, identical to every
+  other model in this project.
+- **Metrics** (`compute_classification_metrics`, same function used for
+  every other model): Accuracy 0.4945, Precision 0.5706, Recall 0.4276,
+  F1 0.4889 — independently cross-checked by manually recomputing
+  accuracy in the notebook (matches to 9 decimal places).
+
+## Final Results
+
+The complete four-way comparison, all four models evaluated on the
+identical 819-row test target:
+
+| Model | Accuracy | Precision | Recall | F1 |
+|---|---|---|---|---|
+| Persistence | 0.5018 | 0.5594 | 0.5594 | 0.5594 |
+| Majority Class | 0.5653 | 0.5653 | 1.0000 | 0.7223 |
+| Raw Logistic Regression | 0.5128 | 0.5586 | 0.6587 | 0.6046 |
+| Engineered Logistic Regression | 0.4945 | 0.5706 | 0.4276 | 0.4889 |
+
+Saved to `results/final_comparison.csv` (generated, gitignored;
+`results/baseline_comparison.csv`, `results/raw_model_comparison.csv`,
+and the new `results/engineered_model_comparison.csv` are all preserved
+alongside it — nothing is overwritten).
+
+**Class imbalance and why accuracy alone is insufficient.** The test
+partition is mildly imbalanced toward UP (463 UP / 56.53% vs. 356
+DOWN_OR_FLAT / 43.47%, from Phase 3's class-balance analysis, unchanged).
+This is exactly why Majority Class's 0.5653 accuracy is not impressive on
+its own merits, and exactly why a model's accuracy must be read alongside
+precision/recall/F1: Majority Class's F1 of 0.7223 looks strong only
+because it trivially achieves recall = 1.0 (it predicts UP unconditionally,
+so it never misses a real UP day) at the cost of precision no better than
+its own accuracy. **A model with accuracy near 0.51 is not demonstrating
+useful predictive superiority over a rule that does no learning at all.**
+
+## Findings
+
+- **Highest accuracy:** Majority Class (0.5653).
+- **Highest F1:** Majority Class (0.7223).
+- **Did the engineered model beat the raw model?** No — worse on
+  Accuracy (0.4945 vs. 0.5128), Recall (0.4276 vs. 0.6587), and F1 (0.4889
+  vs. 0.6046); marginally higher Precision (0.5706 vs. 0.5586), which does
+  not offset the rest.
+- **Did the engineered model beat Persistence?** No (0.4945 vs. 0.5018).
+- **Did the engineered model beat Majority Class?** No (0.4945 vs. 0.5653).
+- **Did technical indicators improve the raw model?** **No.** Adding the
+  8 technical indicators to the 20 raw lagged features made this
+  particular linear model's out-of-sample accuracy *worse*, not better.
+  A plausible (untested) explanation: the indicators are largely
+  redundant derivations of the same `Close` series already present in the
+  raw lags, so for a linear model they may add correlated noise/dimensions
+  rather than independent signal.
+- **Did any model beat the naive baselines?** The raw model beat
+  Persistence but not Majority Class. The engineered model beat neither.
+  **No machine-learning model in this project beat the Majority Class
+  baseline.**
+
+**Limitations:** a single linear model (no hyperparameter search or
+alternative architectures tried); one instrument (SPY) and one fixed
+chronological split; five indicator families at conventional fixed
+windows, not selected or tuned; no transaction costs, slippage, or
+position sizing modeled; **no statistical significance testing was
+performed** on any metric difference above, so none of these differences
+should be read as proven non-random. This project makes **no claim** that
+any model here can reliably predict market direction, and **no claim of
+real-world trading profitability** — the goal throughout has been a
+rigorous, honest time-series classification experiment, and an honest
+experiment is allowed to produce a negative result.
+
 ## Technology Stack
 
 - Python 3.12
@@ -500,12 +596,11 @@ jupyter notebook notebooks/stock_price_movement_predictor.ipynb
 | 4 | ~~Persistence and majority-class baselines~~ — **done** |
 | 5 | ~~Raw OHLCV model~~ — **done** |
 | 6 | ~~Technical indicators~~ — **done** |
-| 7 | Engineered-feature model |
-| 8 | Time-series evaluation |
-| 9 | Four-way comparison |
-| 10 | Prediction visualization |
-| 11–14 | Notebook polish, documentation, reproducibility audit, final review |
+| 7 | ~~Engineered-feature model, time-series evaluation, four-way
+comparison, prediction visualization~~ — **done** |
+| 8 | Final project audit / polish (see "Recommendation for Phase 8" in the Phase 7 report) |
 
-Results, metrics, and conclusions will be added to this README **only**
-after they have been produced and verified in the notebook — nothing here
-is fabricated or anticipated.
+All Option A required deliverables are implemented and evaluated as of
+Phase 7. Results, metrics, and conclusions in this README were added
+**only** after they were produced and verified in the notebook — nothing
+here is fabricated or anticipated.
