@@ -628,6 +628,16 @@ run downloads real data from Yahoo Finance (`data/raw/SPY.csv`, not
 committed); every run after that reuses the cached file unless
 `config.py`'s date range changes.
 
+## Frontend
+
+An optional React/Vite/Tailwind presentation dashboard is included under
+[`frontend/`](frontend/). It presents this experiment's verified results
+(dataset summary, baselines, raw/engineered models, indicators, leakage
+prevention, and the final four-way comparison) for quick review — it does
+not modify, retrain, or re-run any part of the ML pipeline above, and
+performs no live inference. See [`frontend/README.md`](frontend/README.md)
+for setup instructions.
+
 ## Future Implementation Phases
 
 | Phase | Scope |
