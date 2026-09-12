@@ -27,7 +27,7 @@ information available as of today's close.
 - Demonstrate, in a way a reviewer can verify line by line, that no future
   information ever reaches a feature or a fitted preprocessor.
 
-## Option A Requirements Checklist
+## Requirements Checklist
 
 Verified directly against the repository (not assumed from prior notes)
 during the Phase 8 final audit.
@@ -641,7 +641,6 @@ committed); every run after that reuses the cached file unless
 comparison, prediction visualization~~ — **done** |
 | 8 | Final project audit / polish (see "Recommendation for Phase 8" in the Phase 7 report) |
 
-All Option A required deliverables are implemented and evaluated as of
-Phase 7. Results, metrics, and conclusions in this README were added
+All Orequired deliverables are implemented and evaluated . Results, metrics, and conclusions in this README were added
 **only** after they were produced and verified in the notebook — nothing
 here is fabricated or anticipated.
