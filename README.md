@@ -27,6 +27,33 @@ information available as of today's close.
 - Demonstrate, in a way a reviewer can verify line by line, that no future
   information ever reaches a feature or a fitted preprocessor.
 
+## Option A Requirements Checklist
+
+Verified directly against the repository (not assumed from prior notes)
+during the Phase 8 final audit.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| Daily historical OHLCV data | PASS | Real SPY data via `yfinance` (`src/data_loader.py`), 5,457 rows, 2005-01-03 to 2026-09-11, cached at `data/raw/SPY.csv` |
+| Leak-free next-day target | PASS | `build_target()` (`src/preprocessing.py`): `Target[t]=1` iff `Close[t+1]>Close[t]`; `Close[t+1]` used only inside this function, never persisted as a column |
+| At least 3 technical indicators | PASS | 5 indicator families, 8 columns: `SMA_10, SMA_20, RSI_14, MACD, MACD_SIGNAL, MACD_HIST, RETURN_1D, VOLATILITY_20` (`src/features.py`) |
+| Explicit feature-rows-vs-target verification | PASS | Notebook Section 7 ("Leak-Free Verification"): real `Date`/`Close[t]`/`Close[t+1]` (labeled "LABEL ONLY — NOT A FEATURE")/`Target` table, with an independent recomputation assertion |
+| Persistence baseline | PASS | `persistence_baseline()` (`src/baselines.py`), uses only `Close[t-1]`/`Close[t-2]`; test accuracy 0.5018 |
+| Majority-class baseline | PASS | `majority_class_baseline()`, computed from `train_df["Target"]` only; test accuracy 0.5653 |
+| Raw price/volume model | PASS | `build_raw_features()`, 20 lagged OHLCV columns + `LogisticRegression`; test accuracy 0.5128 |
+| Engineered technical-indicator model | PASS | `build_engineered_features()`, 28 columns (20 raw + 8 indicators) + `LogisticRegression`; test accuracy 0.4945 |
+| Strictly time-based splitting | PASS | `chronological_split()`; train 2005-01-03→2020-03-05, validation 2020-03-06→2023-06-05, test 2023-06-06→2026-09-10; no `train_test_split`, no shuffling anywhere in `src/` (verified by direct source search) |
+| Scalers fitted only on training data | PASS | `StandardScaler.fit(X_train)` only, in both the raw and engineered pipelines; proven (not just asserted) via the non-zero scaled-test-mean signature (~6.6) |
+| Directional classification metrics | PASS | Accuracy/Precision/Recall/F1 for all four models (`compute_classification_metrics`), positive class = UP |
+| Class balance report | PASS | Full/train/validation/test UP vs. DOWN_OR_FLAT counts and percentages reported (see "Target Construction and Leakage Prevention" below) |
+| Four-way comparison table | PASS | `results/final_comparison.csv`; all four models, same 819-row test target |
+| Predicted vs. actual plot | PASS | `figures/predicted_vs_actual.png` — actual vs. engineered-model predicted direction over the real test dates |
+| Reproducible Jupyter Notebook | PASS | `notebooks/stock_price_movement_predictor.ipynb` executes top-to-bottom with a fresh kernel, exit code 0, no manual intervention |
+| README.md | PASS | This file |
+| Public GitHub-ready repository | PASS | Isolated git repo (not nested in an unrelated parent directory), `.gitignore` excludes venv/cache/generated data while keeping source/tests/docs/results tracked, no secrets or machine-specific absolute paths in any tracked file (verified by direct search this phase) |
+| No temporal data leakage | PASS | See "Leakage Audit" in the Phase 8 report; only permitted future-look is `Close[t+1]` inside `build_target` |
+| Honest generalization analysis | PASS | "Findings" below states plainly that no ML model beat the Majority Class baseline — not adjusted or hidden |
+
 ## Current Status
 
 **Phase 7 — Engineered feature model and final four-way comparison
@@ -243,7 +270,8 @@ by manually recomputing accuracy in the notebook:
 | Persistence | 0.5018 | 0.5594 | 0.5594 | 0.5594 |
 | Majority Class | 0.5653 | 0.5653 | 1.0000 | 0.7223 |
 
-Saved to `results/baseline_comparison.csv` (generated, gitignored). The
+Saved to `results/baseline_comparison.csv` (committed to the repo as
+deliverable evidence — see "Project Structure" below). The
 majority baseline's recall is trivially 1.0 because it always predicts UP
 — it "catches" every actual UP day by never predicting anything else, at
 the cost of also predicting UP on every DOWN_OR_FLAT day. Neither number
@@ -342,8 +370,8 @@ recomputing accuracy in the notebook:
 | Majority Class | 0.5653 | 0.5653 | 1.0000 | 0.7223 |
 | Raw Logistic Regression | 0.5128 | 0.5586 | 0.6587 | 0.6046 |
 
-Saved to `results/raw_model_comparison.csv` (generated, gitignored;
-`results/baseline_comparison.csv` from Phase 4 is left untouched).
+Saved to `results/raw_model_comparison.csv` (committed alongside
+`results/baseline_comparison.csv`, which is left untouched).
 
 **Honest discussion of the result:** the raw model beats Persistence
 (51.28% vs. 50.18% accuracy) but does **not** beat Majority Class (56.53%)
@@ -357,13 +385,13 @@ to carry only weak, if any, genuine directional signal beyond what the
 class imbalance itself already provides — consistent with market
 efficiency and exactly the kind of honest, unglamorous result this
 project is designed to surface rather than hide. Whether engineered
-technical indicators (Phase 6) do any better is an open, real question,
-not a foregone conclusion.
+technical indicators do any better is answered in "Findings" below (the
+short answer: no, they did not).
 
 ## Technical Indicators
 
-Feature engineering only in this section — **no engineered-feature model
-is trained here**; that is the next phase.
+Feature engineering only in this section — model training on these
+indicators is covered in "Engineered Feature Model" below.
 
 ### Indicators Selected and Exact Windows
 
@@ -416,9 +444,9 @@ replacement, so the eventual comparison actually tests whether indicators
 add signal beyond raw price/volume history rather than testing two
 unrelated feature sets against each other.
 
-No claim is made here about whether these indicators improve prediction
-accuracy — that is only answered once the engineered model is trained
-and evaluated against the raw model and both baselines (next phase).
+This section covers feature engineering only — see "Engineered Feature
+Model" and "Findings" below for the actual answer to whether these
+indicators improve prediction accuracy (they did not, under this setup).
 
 ## Engineered Feature Model
 
@@ -462,10 +490,10 @@ identical 819-row test target:
 | Raw Logistic Regression | 0.5128 | 0.5586 | 0.6587 | 0.6046 |
 | Engineered Logistic Regression | 0.4945 | 0.5706 | 0.4276 | 0.4889 |
 
-Saved to `results/final_comparison.csv` (generated, gitignored;
+Saved to `results/final_comparison.csv` (committed to the repo, along with
 `results/baseline_comparison.csv`, `results/raw_model_comparison.csv`,
-and the new `results/engineered_model_comparison.csv` are all preserved
-alongside it — nothing is overwritten).
+and `results/engineered_model_comparison.csv` — all four are preserved
+side by side; nothing is overwritten).
 
 **Class imbalance and why accuracy alone is insufficient.** The test
 partition is mildly imbalanced toward UP (463 UP / 56.53% vs. 356
@@ -538,7 +566,7 @@ stock-price-movement-predictor/
 │   ├── models.py           # Logistic Regression training
 │   └── evaluation.py       # metrics + comparison table helpers
 ├── models/              # saved fitted model artifacts (generated, gitignored)
-├── results/             # exported metrics tables (generated, gitignored)
+├── results/             # exported metrics tables (generated, committed as deliverable evidence)
 ├── figures/             # saved plots (generated, gitignored)
 ├── tests/               # basic project/setup tests
 ├── config.py            # all project constants (symbol, dates, seed, paths)
@@ -586,6 +614,19 @@ py -3.12 -m venv .venv
 pip install -r requirements.txt
 jupyter notebook notebooks/stock_price_movement_predictor.ipynb
 ```
+
+To run the test suite (126 deterministic tests, no network access required
+— they use small hand-built DataFrames, never the real dataset):
+
+```bash
+pytest tests/ -v
+```
+
+To regenerate everything from scratch (fresh data pull, all figures, all
+results CSVs): open the notebook and Restart Kernel + Run All. The first
+run downloads real data from Yahoo Finance (`data/raw/SPY.csv`, not
+committed); every run after that reuses the cached file unless
+`config.py`'s date range changes.
 
 ## Future Implementation Phases
 

@@ -37,10 +37,12 @@ data/processed/*
 !data/processed/.gitkeep
 
 # --- Generated artifacts ---------------------------------------------------
+# Figures are regenerable from the notebook (and already embedded as
+# outputs in the committed .ipynb), so they stay out of git. Results CSVs
+# are the project's final deliverable evidence (Option A requirement) and
+# are committed so an evaluator can see them without re-running anything.
 models/*
 !models/.gitkeep
-results/*
-!results/.gitkeep
 figures/*
 !figures/.gitkeep
 

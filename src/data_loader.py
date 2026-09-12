@@ -22,6 +22,19 @@ import yfinance as yf
 REQUIRED_COLUMNS = ["Date", "Open", "High", "Low", "Close", "Volume"]
 
 
+def _display_path(path: Path) -> str:
+    """Format ``path`` relative to the current working directory when possible.
+
+    Used only for print statements, never for actual file I/O -- avoids
+    baking a machine-specific absolute path (e.g. a local username) into
+    notebook output committed to a public repository.
+    """
+    try:
+        return str(Path(path).resolve().relative_to(Path.cwd().resolve()))
+    except ValueError:
+        return str(path)
+
+
 def fetch_ohlcv(symbol: str, start_date: str, end_date: str | None = None) -> pd.DataFrame:
     """Download real daily OHLCV data for ``symbol`` from Yahoo Finance.
 
@@ -111,15 +124,15 @@ def load_or_fetch_ohlcv(
         cached = load_cached_data(csv_path)
         if _cache_matches_config(cached, start_date, end_date):
             print(
-                f"Using cached data at {csv_path} "
+                f"Using cached data at {_display_path(csv_path)} "
                 f"({len(cached)} rows, {cached['Date'].min().date()} to {cached['Date'].max().date()})."
             )
             return cached
-        print(f"Cached data at {csv_path} does not match the requested configuration; re-downloading.")
+        print(f"Cached data at {_display_path(csv_path)} does not match the requested configuration; re-downloading.")
 
     df = fetch_ohlcv(symbol, start_date, end_date)
     save_raw_data(df, csv_path)
-    print(f"Downloaded and cached {len(df)} rows to {csv_path}.")
+    print(f"Downloaded and cached {len(df)} rows to {_display_path(csv_path)}.")
     return df
 
 
